@@ -38,6 +38,8 @@ BASE_URL = 'http://english.aljazeera.net'
 def full_url(path):
     return urljoin(BASE_URL, path)
 
+def extract_videoid(url):
+    return url.split("/")[-1:][0]
 
 YOUTUBE_PTN = 'plugin://plugin.video.youtube/?action=play_video&videoid=%s'
 def youtube_url(videoid):
@@ -63,14 +65,18 @@ def parse_video(video):
     info = {
         'title': video['title']['$t'],
         'summary': video['media$group']['media$description']['$t'],
-        'videoid': video['media$group']['yt$videoid']['$t'],
+        #'videoid': video['media$group']['yt$videoid']['$t'],
+        'videoid': extract_videoid(video['id']['$t']),
     }
+    #print info['videoid']
+    ## There are multiple images returned, default to high quality
+    #images = video['media$group']['media$thumbnail']
+    #for image in images:
+    #    if image['yt$name'] == u'hqdefault':
+    #        info['thumbnail'] = image['url']
 
-    # There are multiple images returned, default to high quality
-    images = video['media$group']['media$thumbnail']
-    for image in images:
-        if image['yt$name'] == u'hqdefault':
-            info['thumbnail'] = image['url']
+    info['thumbnail'] = "http://i.ytimg.com/vi/" + info['videoid'] + "/0.jpg"
+    #print info['thumbnail']
 
     # Make a datetime
     #info['published'] = video['published']['$t']
@@ -85,20 +91,35 @@ def get_videos(count, list_id, start_index):
 
     This function queris the gdata youtube API. The AlJazeera website uses the
     same API on the client side via javascript.'''
+#    params = {
+#        'v': '2',
+#        'author': 'AlJazeeraEnglish',
+#        'alt': 'json',
+#        'max-results': count,
+#        'start-index': start_index,
+#        'prettyprint': 'true',
+#        'orderby': 'updated',
+#    }
     params = {
-        'v': '2',
+        'q': list_id,
         'author': 'AlJazeeraEnglish',
         'alt': 'json',
         'max-results': count,
         'start-index': start_index,
+        'orderby': 'published',
         'prettyprint': 'true',
-        'orderby': 'updated',
     }
-    url_ptn = 'http://gdata.youtube.com/feeds/api/videos/-/%s?%s'
-    url = url_ptn % (list_id, urlencode(params))
+    #url_ptn = 'http://gdata.youtube.com/feeds/api/videos/-/%s?%s'
+    #url = url_ptn % (list_id, urlencode(params))
+    url_ptn = 'http://gdata.youtube.com/feeds/api/videos/?%s'
+    url = url_ptn % urlencode(params)
+    
+    #print url
     src = download_page(url)
     resp = json.loads(src)
-    videos  = resp['feed']['entry']
+    #print resp
+    videos = resp['feed']['entry']
+    #print videos
     video_infos = map(parse_video, videos)
     total_results = resp['feed']['openSearch$totalResults']['$t']
     return video_infos, total_results
@@ -146,7 +167,9 @@ def show_categories3(onclick_func, clips=False):
     '''Shows categories available for either Clips or Programs on the aljazeera
     video page.
     '''
+    #print "in show_categories"
     url = full_url('video')
+    #print url
     src = download_page(url)
     # Fix shitty HTML so BeautifulSoup doesn't break
     src = src.replace('id"adSpacer"', 'id="adSpacer"')
@@ -175,7 +198,9 @@ def show_categories3(onclick_func, clips=False):
         tds = tds[1:]
 
     for td in tds:
-        count, list_id, start_index, method = parse_queryvideo_args(td['onclick'])
+        #print parse_queryvideo_args(td['onclick'])
+        count, null, start_index, method = parse_queryvideo_args(td['onclick'])
+        list_id = td.string
         items.append({
             'label': td.string,
             'url': plugin.url_for('show_videos', count=count, list_id=list_id,
@@ -188,7 +213,7 @@ def show_categories3(onclick_func, clips=False):
 @plugin.route('/videos/<list_id>/<start_index>/<count>/')
 def show_videos(list_id, start_index, count):
     '''List videos available for a given category. Only 13 videos are displayed
-    at a time. If there are older or newwer videos, appropriate list items will
+    at a time. If there are older or newer videos, appropriate list items will
     be placed at the top of the list.
     '''
     videos, total_results = get_videos(count, list_id, start_index)
