@@ -45,83 +45,56 @@ YOUTUBE_PTN = 'plugin://plugin.video.youtube/?action=play_video&videoid=%s'
 def youtube_url(videoid):
     return YOUTUBE_PTN % (videoid)
 
-
-def parse_queryvideo_args(s):
-    '''Parses a QueryVideos javascript call (string) and returns a 4 tuple.
-
-    parse_queryvideo_args("QueryVideos(13,'africanews',1,1)")
-    >> ('13, 'africanews', '1', '1')
-    '''
-    p = re.compile('QueryVideos\((.+?)\)')
-    m = p.search(s)
-    if not m:
-        return None
-    count, list_id, start_index, method = m.group(1).split(',')
-    return count, list_id.strip("'"), start_index, method
-
-
 def parse_video(video):
     '''Returns a dict of information for a given json video object.'''
+    
     info = {
         'title': video['title']['$t'],
         'summary': video['media$group']['media$description']['$t'],
-        #'videoid': video['media$group']['yt$videoid']['$t'],
         'videoid': extract_videoid(video['id']['$t']),
     }
-    #print info['videoid']
-    ## There are multiple images returned, default to high quality
-    #images = video['media$group']['media$thumbnail']
-    #for image in images:
-    #    if image['yt$name'] == u'hqdefault':
-    #        info['thumbnail'] = image['url']
-
     info['thumbnail'] = "http://i.ytimg.com/vi/" + info['videoid'] + "/0.jpg"
-    #print info['thumbnail']
-
+    
+    # TODO
     # Make a datetime
     #info['published'] = video['published']['$t']
     return info
 
 
-def get_videos(count, list_id, start_index):
+def get_videos(query, start_index = 1):
     '''Returns a tuple of (videos, total_videos) where videos is a list of
     dicts containing video information and total_videos is the toal number
-    of videos available for the given list_id. The number of videos returned
-    is specified by the given count.
+    of videos available for the given query. The number of videos returned
+    is specified by the given count.'''
 
-    This function queris the gdata youtube API. The AlJazeera website uses the
-    same API on the client side via javascript.'''
-#    params = {
-#        'v': '2',
-#        'author': 'AlJazeeraEnglish',
-#        'alt': 'json',
-#        'max-results': count,
-#        'start-index': start_index,
-#        'prettyprint': 'true',
-#        'orderby': 'updated',
-#    }
-    params = {
-        'q': list_id,
-        'author': 'AlJazeeraEnglish',
-        'alt': 'json',
-        'max-results': count,
-        'start-index': start_index,
-        'orderby': 'published',
-        'prettyprint': 'true',
-    }
-    #url_ptn = 'http://gdata.youtube.com/feeds/api/videos/-/%s?%s'
-    #url = url_ptn % (list_id, urlencode(params))
     url_ptn = 'http://gdata.youtube.com/feeds/api/videos/?%s'
-    url = url_ptn % urlencode(params)
     
-    #print url
+    params = {
+        'q': query,
+        'author': 'AlJazeeraEnglish',
+        'alt': 'json',  # Ask YT to return JSON
+        'max-results': '12',
+        'start-index': str(start_index),
+        'orderby': 'published',
+        'prettyprint': 'true',  # Makes debugging easier
+    }
+    
+    url = url_ptn % urlencode(params)
+    print url
+    
     src = download_page(url)
     resp = json.loads(src)
-    #print resp
-    videos = resp['feed']['entry']
-    #print videos
+    
+    try:
+        videos = resp['feed']['entry']
+    except:
+        video_infos = []
+        total_results = 0
+        return videos_info, total_results
+    
     video_infos = map(parse_video, videos)
-    total_results = resp['feed']['openSearch$totalResults']['$t']
+    total_results = int(resp['feed']['openSearch$totalResults']['$t'])
+    
     return video_infos, total_results
 
 
@@ -131,19 +104,22 @@ def show_homepage():
         # Watch Live
         {'label': plugin.get_string(30100),
          'url': plugin.url_for('watch_live')},
-        # News Clips
-        {'label': plugin.get_string(30101),
-         'url': plugin.url_for('show_clip_categories')},
+        # Watch Live
+        {'label': plugin.get_string(30100) + " HD",
+         'url': plugin.url_for('watch_live_hd')},
         # Programs
         {'label': plugin.get_string(30102),
-         'url': plugin.url_for('show_program_categories')},
+         'url': plugin.url_for('show_programs')},
+        # News Clips
+        {'label': plugin.get_string(30101),
+         'url': plugin.url_for('show_all_clips')},
     ]
     return plugin.add_items(items)
 
 
 @plugin.route('/live/')
 def watch_live():
-    rtmpurl = 'rtmp://aljazeeraflashlivefs.fplive.net:443/aljazeeraflashlive-live?videoId=883816736001&lineUpId=&pubId=665003303001&playerId=751182905001&affiliateId=/aljazeera_eng_med?videoId=883816736001&lineUpId=&pubId=665003303001&playerId=751182905001&affiliateId= live=true'
+    rtmpurl = 'rtmp://aljazeeraflashlivefs.fplive.net:1935/aljazeeraflashlive-live/aljazeera_eng_med live=true'
     li = xbmcgui.ListItem('AlJazeera Live')
     xbmc.Player(xbmc.PLAYER_CORE_DVDPLAYER).play(rtmpurl, li)
     # Return an empty list so we can test with plugin.crawl() and
@@ -151,25 +127,22 @@ def watch_live():
     return []
 
 
-def only_clip_categories(s):
-    return s.find("SelectProgInfo('Selected');") > -1
+@plugin.route('/live_hd/')
+def watch_live_hd():
+    rtmpurl = 'rtmp://aljazeeraflashlivefs.fplive.net:1935/aljazeeraflashlive-live/aljazeera_eng_high live=true'
+    li = xbmcgui.ListItem('AlJazeera HD Live')
+    xbmc.Player(xbmc.PLAYER_CORE_DVDPLAYER).play(rtmpurl, li)
+    # Return an empty list so we can test with plugin.crawl() and
+    # plugin.interactive()
+    return []
 
 
-def only_program_categories(s):
-    return not only_clip_categories(s)
-
-
-@plugin.route('/categories/clips/', onclick_func=only_clip_categories,
-              name='show_clip_categories', clips=True)
-@plugin.route('/categories/programs/', name='show_program_categories',
-              onclick_func=only_program_categories)
-def show_categories3(onclick_func, clips=False):
+@plugin.route('/programs/')
+def show_programs():
     '''Shows categories available for either Clips or Programs on the aljazeera
     video page.
     '''
-    #print "in show_categories"
     url = full_url('video')
-    #print url
     src = download_page(url)
     # Fix shitty HTML so BeautifulSoup doesn't break
     src = src.replace('id"adSpacer"', 'id="adSpacer"')
@@ -177,46 +150,38 @@ def show_categories3(onclick_func, clips=False):
 
     tds = html.findAll('td', {
         'id': re.compile('^mItem_'),
-        'onclick': onclick_func,
+        'onclick': re.compile(r"""SelectProgInfo(?!\('Selected'\))""")  # programs
+        # 'onclick': re.compile(r"""SelectProgInfo\('Selected'\)""")    # news clips
     })
 
     items = []
 
-    # The first link for the 'Clips' section links directly to a video so we
-    # must handle it differently.
-    if clips:
-        videos, total_results = get_videos('1', 'vod', '1')
-        video = videos[0]
-        items.append({
-            'label': video['title'],
-            'thumbnail': video['thumbnail'],
-            'info': {'plot': video['summary'], },
-            'url': youtube_url(video['videoid']),
-            'is_folder': False,
-            'is_playable': True,
-        })
-        tds = tds[1:]
-
     for td in tds:
-        #print parse_queryvideo_args(td['onclick'])
-        count, null, start_index, method = parse_queryvideo_args(td['onclick'])
-        list_id = td.string
+        query = td.string
         items.append({
             'label': td.string,
-            'url': plugin.url_for('show_videos', count=count, list_id=list_id,
-                                  start_index=start_index),
+            'url': plugin.url_for('show_videos', query = query, start_index = '1')
         })
 
+    # TODO: Add images
     return plugin.add_items(items)
 
 
-@plugin.route('/videos/<list_id>/<start_index>/<count>/')
-def show_videos(list_id, start_index, count):
+@plugin.route('/all/')
+def show_all_clips():
+    pass
+
+
+@plugin.route('/videos/<query>/<start_index>/')
+def show_videos(query = None, start_index = '1'):
     '''List videos available for a given category. Only 13 videos are displayed
     at a time. If there are older or newer videos, appropriate list items will
     be placed at the top of the list.
     '''
-    videos, total_results = get_videos(count, list_id, start_index)
+    start_index = int(start_index)
+
+    videos, total_results = get_videos(query, start_index)
+    
     items = [{
         'label': video['title'],
         'thumbnail': video['thumbnail'],
@@ -237,20 +202,20 @@ def show_videos(list_id, start_index, count):
 
     # Add '> Older' and '< Newer' list items if the list spans more than 1 page
     # (e.g. > 13 videos)
-    if int(start_index) + int(count) < int(total_results):
-        items.insert(0, {
-            # Older videos
+    if start_index + 12 < total_results:
+        items.append({
+            # More videos
             'label': u'%s »' % plugin.get_string(30200),
-            'url': plugin.url_for('show_videos', count=count, list_id=list_id,
-                                  start_index=str(int(start_index) + int(count))),
+            'url': plugin.url_for('show_videos', query = query,
+                                  start_index = str(start_index + 12))
         })
-    if int(start_index) > 1:
-        items.insert(0, {
-            # Newer videos
-            'label': u'« %s' % plugin.get_string(30201),
-            'url': plugin.url_for('show_videos', count=count, list_id=list_id,
-                                  start_index=str(int(start_index) - int(count))),
-        })
+    #if int(start_index) > 1:
+    #    items.insert(0, {
+    #        # Newer videos
+    #        'label': u'« %s' % plugin.get_string(30201),
+    #        'url': plugin.url_for('show_videos', count=count, list_id=list_id,
+    #                              start_index=str(int(start_index) - int(count))),
+    #    })
 
     return plugin.add_items(items)
 
