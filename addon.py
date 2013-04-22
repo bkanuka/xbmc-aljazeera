@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-# Copyright 2011 Jonathan Beluch.
+# Copyright 2011 Jonathan Beluch
+#           2013 Bennett Kanuka
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
